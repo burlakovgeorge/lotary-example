@@ -1,9 +1,9 @@
 pragma solidity ^0.8.4;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+
 import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
 
-contract RNG is VRFConsumerBase, Ownable {
+contract RNG is VRFConsumerBase {
 
     uint256 public fee;
     bytes32 public keyhash; //provides a way to uniquely identify a chainline vrf node

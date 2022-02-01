@@ -4,6 +4,28 @@ import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
 import "./RNG.sol";
+import "./SortitionSumTreeFactory.sol";
+
+
+library UniformRandomNumber {
+  /// @notice Select a random number without modulo bias using a random seed and upper bound
+  /// @param _entropy The seed for randomness
+  /// @param _upperBound The upper bound of the desired number
+  /// @return A random number less than the _upperBound
+  function uniform(uint256 _entropy, uint256 _upperBound) internal pure returns (uint256) {
+    require(_upperBound > 0, "UniformRand/min-bound");
+    uint256 min = 0 - _upperBound % _upperBound;
+    uint256 random = _entropy;
+    while (true) {
+      if (random >= min) {
+        break;
+      }
+      random = uint256(keccak256(abi.encodePacked(random)));
+    }
+    return random % _upperBound;
+  }
+}
+
 
 contract Lottery is Ownable {
     address payable[] public players;
@@ -13,6 +35,13 @@ contract Lottery is Ownable {
     AggregatorV3Interface internal ethUsdPriceFeed;
 
      RNG public randomRNG;
+
+     bytes32 constant private TREE_KEY = keccak256("Lottery");
+    uint256 constant private MAX_TREE_LEAVES = 5;
+
+    using SortitionSumTreeFactory for SortitionSumTreeFactory.SortitionSumTrees;
+
+    SortitionSumTreeFactory.SortitionSumTrees sumTreeFactory;
 
     enum LOTTERY_STATE {
         OPEN,
@@ -33,24 +62,16 @@ contract Lottery is Ownable {
         ethUsdPriceFeed = AggregatorV3Interface(_priceFeedAddress);
         lottery_state = LOTTERY_STATE.CLOSED;
         randomRNG = RNG(RNGContract);
+        sumTreeFactory.createTree(TREE_KEY, MAX_TREE_LEAVES);
     }
 
     function enter() public payable {
-        //min 1USD in eth entrance
-        //this function declared payable thus
-        //automatically it will take any "value" sent in call
-        //and hold it in the contract address balance
         require(lottery_state == LOTTERY_STATE.OPEN);
-        require(msg.value >= getEntranceFee(), "You need more Eth!");
-        players.push(payable(msg.sender));
+        // require(msg.value >= getEntranceFee(), "You need more Eth!");
+        // players.push(payable(msg.sender));
+        sumTreeFactory.set(TREE_KEY, msg.value, bytes32(uint256(uint160(address(msg.sender)))));
     }
 
-    function getEntranceFee() public view returns (uint256) {
-        (, int256 price, , , ) = ethUsdPriceFeed.latestRoundData();
-        uint256 adjustedPrice = uint256(price) * 10**10;
-        uint256 costToEnter = (usdEntryFee * 10**21) / adjustedPrice;
-        return costToEnter;
-    }
 
     function startLottery() public {
         require(
@@ -71,6 +92,8 @@ contract Lottery is Ownable {
         //call request randomness function from VRFConsumer base
         //it returns a bytes32 type
         bytes32 requestId = randomRNG.requestRandomNumber();
+       
+
 
         lottery_state = LOTTERY_STATE.CALCULATING_WINNER;
 
@@ -87,7 +110,12 @@ contract Lottery is Ownable {
         );
 
         uint256 indexOfWinner = randomRNG.winners(_requestId) % players.length;
-        recentWinner = players[indexOfWinner];
+        
+        
+        bytes32 entropy = blockhash(1);
+        uint256 token = UniformRandomNumber.uniform(uint256(entropy), uint(_requestId));
+        
+        recentWinner = payable(address(uint160(bytes20(sumTreeFactory.draw(TREE_KEY, token)))));
         //ex of how this works
         //now we transfer entire balance of this contract into address of winner
         recentWinner.transfer(address(this).balance);
