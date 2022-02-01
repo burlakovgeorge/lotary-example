@@ -3,13 +3,16 @@ pragma solidity ^0.8.4;
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
+import "./RNG.sol";
 
-contract Lottery is VRFConsumerBase, Ownable {
+contract Lottery is Ownable {
     address payable[] public players;
     address payable public recentWinner;
     uint256 public usdEntryFee;
-    uint256 public randomness;
+
     AggregatorV3Interface internal ethUsdPriceFeed;
+
+     RNG public randomRNG;
 
     enum LOTTERY_STATE {
         OPEN,
@@ -20,22 +23,16 @@ contract Lottery is VRFConsumerBase, Ownable {
 
     LOTTERY_STATE public lottery_state;
 
-    uint256 public fee;
-    bytes32 public keyhash; //provides a way to uniquely identify a chainline vrf node
-    event RequestedRandomness(bytes32 requestId);
+     event RequestedRandomness(bytes32 requestId);
 
     constructor(
         address _priceFeedAddress, //needed to initialize constructor in this lottery.sol contract
-        address _vrfCoordinator, //needed to initialize the inherited contract constructor
-        address _link, //needed to initialize the inherited contract constructor
-        uint256 _fee, //needed to set fee for contract which will be used by inherited contract functions
-        bytes32 _keyhash //used in inherited vrf contract functions
-    )  VRFConsumerBase(_vrfCoordinator, _link) {
+        address RNGContract
+    )  {
         usdEntryFee = 1 * (10**18);
         ethUsdPriceFeed = AggregatorV3Interface(_priceFeedAddress);
         lottery_state = LOTTERY_STATE.CLOSED;
-        fee = _fee;
-        keyhash = _keyhash;
+        randomRNG = RNG(RNGContract);
     }
 
     function enter() public payable {
@@ -73,7 +70,7 @@ contract Lottery is VRFConsumerBase, Ownable {
         //need to now request a random number
         //call request randomness function from VRFConsumer base
         //it returns a bytes32 type
-        bytes32 requestId = requestRandomness(keyhash, fee);
+        bytes32 requestId = randomRNG.requestRandomNumber();
 
         lottery_state = LOTTERY_STATE.CALCULATING_WINNER;
 
@@ -81,17 +78,15 @@ contract Lottery is VRFConsumerBase, Ownable {
     }
 
     
-    function fulfillRandomness(bytes32 _requestId, uint256 _randomness)
-        internal
-        override
+    function findWinner(bytes32 _requestId)
+        public onlyOwner
     {
         require(
             lottery_state == LOTTERY_STATE.CALCULATING_WINNER,
             "You arent there yet!"
         );
-        require(_randomness > 0, "Randomness not found");
-        //now we need to pick winner from players array
-        uint256 indexOfWinner = _randomness % players.length;
+
+        uint256 indexOfWinner = randomRNG.winners(_requestId) % players.length;
         recentWinner = players[indexOfWinner];
         //ex of how this works
         //now we transfer entire balance of this contract into address of winner
@@ -100,6 +95,10 @@ contract Lottery is VRFConsumerBase, Ownable {
         //now we reset the lottery so it can be run again
         players = new address payable[](0);
         lottery_state == LOTTERY_STATE.CLOSED;
-        randomness = _randomness;
+
+    }
+
+    function setRNGContract(address RNGContract) public onlyOwner {
+       randomRNG = RNG(RNGContract);
     }
 }
