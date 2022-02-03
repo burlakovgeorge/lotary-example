@@ -62,7 +62,7 @@ contract Lottery is Ownable {
         ethUsdPriceFeed = AggregatorV3Interface(_priceFeedAddress);
         lottery_state = LOTTERY_STATE.CLOSED;
         randomRNG = RNG(RNGContract);
-        sumTreeFactory.createTree(TREE_KEY, MAX_TREE_LEAVES);
+       
     }
 
     function enter() public payable {
@@ -79,6 +79,7 @@ contract Lottery is Ownable {
             "Cant start a new lottery yet!"
         );
         lottery_state = LOTTERY_STATE.OPEN;
+        sumTreeFactory.createTree(TREE_KEY, MAX_TREE_LEAVES);
     }
 
     function endLottery() public onlyOwner {
